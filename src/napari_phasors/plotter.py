@@ -377,8 +377,9 @@ class PlotterWidget(QWidget):
         This function is called when a new layer is added or removed, or when the layer name changes.
         """
         self.plotter_inputs_widget.labels_layer_mask_combobox.clear()
+        # TODO: Sometimes the output layer is still added to teh combobox (for example apparently when one changes the seleciton is)
         layer_names = [layer.name for layer in self.viewer.layers if isinstance(
-                layer, Labels) and layer != self.phasors_selected_layer]
+                layer, Labels) and layer != self._phasors_selected_layer]
         self.plotter_inputs_widget.labels_layer_mask_combobox.addItems(
             layer_names
         )
