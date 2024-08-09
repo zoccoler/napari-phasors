@@ -90,6 +90,8 @@ class PlotterWidget(QWidget):
         The main plotter inputs widget. The widget contains:
         - image_layer_with_phasor_features_combobox : QComboBox
             The combobox for selecting the image layer with phasor features.
+        - labels_layer_mask_combobox : QComboBox
+            The combobox for selecting the labels layer mask.
         - phasor_selection_id_combobox : QComboBox
             The combobox for selecting the phasor selection id.
         - harmonic_spinbox : QSpinBox
@@ -161,8 +163,10 @@ class PlotterWidget(QWidget):
         self.layout().addItem(spacer)
 
         # Connect napari signals when new layer is inseted or removed
-        self.viewer.layers.events.inserted.connect(self.reset_layer_choices)
-        self.viewer.layers.events.removed.connect(self.reset_layer_choices)
+        self.viewer.layers.events.inserted.connect(self.update_image_layer_choices)
+        self.viewer.layers.events.removed.connect(self.update_image_layer_choices)
+        self.viewer.layers.events.inserted.connect(self.update_labels_layer_mask_choices)
+        self.viewer.layers.events.removed.connect(self.update_labels_layer_mask_choices)
 
         # Connect callbacks
         self.plotter_inputs_widget.image_layer_with_phasor_features_combobox.currentIndexChanged.connect(
@@ -185,7 +189,7 @@ class PlotterWidget(QWidget):
 
         # Initialize attributes
         self._labels_layer_with_phasor_features = None
-        self._phasors_selected_layer = None
+        self.phasors_selected_layer = None
         self.colorbar = None
         self._colormap = self.canvas_widget.artists[ArtistType.HISTOGRAM2D].categorical_colormap
         self._histogram_colormap = self.canvas_widget.artists[ArtistType.HISTOGRAM2D].histogram_colormap
@@ -193,7 +197,7 @@ class PlotterWidget(QWidget):
         self.plot_type = ArtistType.HISTOGRAM2D.name
 
         # Populate labels layer combobox
-        self.reset_layer_choices()
+        self.update_image_layer_choices()
 
     @property
     def selection_id(self):
@@ -224,9 +228,13 @@ class PlotterWidget(QWidget):
             if new_selection_id not in [self.plotter_inputs_widget.phasor_selection_id_combobox.itemText(i) for i in range(self.plotter_inputs_widget.phasor_selection_id_combobox.count())]:
                 self.plotter_inputs_widget.phasor_selection_id_combobox.addItem(new_selection_id)
             self.plotter_inputs_widget.phasor_selection_id_combobox.setCurrentText(new_selection_id)
-            # If column_name is not in features, add it with zeros
-            if new_selection_id not in self._labels_layer_with_phasor_features.features.columns:
-                self._labels_layer_with_phasor_features.features[new_selection_id] = np.zeros_like(self._labels_layer_with_phasor_features.features['label'].values)
+            if self._labels_layer_with_phasor_features is not None:
+                self.add_selection_id_column(new_selection_id)
+
+    def add_selection_id_column(self, column_name: str):
+        # If column_name is not in features, add it with zeros
+        if column_name not in self._labels_layer_with_phasor_features.features.columns:
+            self._labels_layer_with_phasor_features.features[column_name] = np.zeros_like(self._labels_layer_with_phasor_features.features['label'].values)
 
     def on_selection_id_changed(self):
         """Callback function when the phasor selection id combobox is changed.
@@ -347,10 +355,10 @@ class PlotterWidget(QWidget):
             self._labels_layer_with_phasor_features.features.loc[harmonic_mask, column] = manual_selection
         self.create_phasors_selected_layer()
 
-    def reset_layer_choices(self):
+    def update_image_layer_choices(self):
         """Reset the image layer with phasor features combobox choices.
 
-        This function is called when a new layer is added or removed.
+        This function is called when a new layer is added or removed, or when the layer name changes.
         It also updates `_labels_layer_with_phasor_features` attribute with the Labels layer in the metadata of the selected image layer.
         """
         self.plotter_inputs_widget.image_layer_with_phasor_features_combobox.clear()
@@ -362,8 +370,23 @@ class PlotterWidget(QWidget):
         # Update layer names in the phasor selection id combobox when layer name changes
         for layer_name in layer_names:
             layer = self.viewer.layers[layer_name]
-            layer.events.name.connect(self.reset_layer_choices)
+            layer.events.name.connect(self.update_image_layer_choices)
         self.on_labels_layer_with_phasor_features_changed()
+
+    def update_labels_layer_mask_choices(self):
+        """Reset the labels layer mask combobox choices.
+
+        This function is called when a new layer is added or removed, or when the layer name changes.
+        """
+        self.plotter_inputs_widget.labels_layer_mask_combobox.clear()
+        layer_names = [layer.name for layer in self.viewer.layers if isinstance(
+                layer, Labels) and layer != self._phasors_selected_layer]
+        self.plotter_inputs_widget.labels_layer_mask_combobox.addItems(
+            layer_names
+        )
+        for layer_name in layer_names:
+            layer = self.viewer.layers[layer_name]
+            layer.events.name.connect(self.update_labels_layer_mask_choices)
 
 
     def on_labels_layer_with_phasor_features_changed(self):
@@ -478,14 +501,15 @@ class PlotterWidget(QWidget):
         mapped_data = map_array(input_array, input_array_values, phasors_layer_data)
         color_dict = colormap_to_dict(self._colormap, self._colormap.N, exclude_first=True)
         # Build output phasors Labels layer
-        phasors_selected_layer = Labels(
+        self._phasors_selected_layer = Labels(
             mapped_data, name='Phasors Selected', scale=self._labels_layer_with_phasor_features.scale,
             colormap=DirectLabelColormap(color_dict=color_dict, name='cat10_mod'))
-        if self._phasors_selected_layer is None:
-            self._phasors_selected_layer = self.viewer.add_layer(phasors_selected_layer)
+        if self.phasors_selected_layer is None:
+            self.phasors_selected_layer = self.viewer.add_layer(self._phasors_selected_layer)
+            a=1
         else:
-            self._phasors_selected_layer.data = mapped_data
-            self._phasors_selected_layer.scale = self._labels_layer_with_phasor_features.scale
+            self.phasors_selected_layer.data = mapped_data
+            self.phasors_selected_layer.scale = self._labels_layer_with_phasor_features.scale
 
 if __name__ == "__main__":
     import napari
