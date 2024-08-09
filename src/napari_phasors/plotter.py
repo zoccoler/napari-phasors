@@ -195,6 +195,7 @@ class PlotterWidget(QWidget):
         self._histogram_colormap = self.canvas_widget.artists[ArtistType.HISTOGRAM2D].histogram_colormap
         # Start with the histogram2d plot type
         self.plot_type = ArtistType.HISTOGRAM2D.name
+        self.selection_id = "Manual Selection"
 
         # Populate labels layer combobox
         self.update_image_layer_choices()
@@ -218,9 +219,6 @@ class PlotterWidget(QWidget):
     @selection_id.setter
     def selection_id(self, new_selection_id: str):
         """Sets the selection id from the phasor selection id combobox."""
-        if self._labels_layer_with_phasor_features is None:
-            notifications.WarningNotification("No labels layer with phasor features selected.")
-            return
         if new_selection_id in DATA_COLUMNS:
             notifications.WarningNotification(f"{new_selection_id} is not a valid selection column. It must not be one of {DATA_COLUMNS}.")
             return
@@ -229,9 +227,9 @@ class PlotterWidget(QWidget):
                 self.plotter_inputs_widget.phasor_selection_id_combobox.addItem(new_selection_id)
             self.plotter_inputs_widget.phasor_selection_id_combobox.setCurrentText(new_selection_id)
             if self._labels_layer_with_phasor_features is not None:
-                self.add_selection_id_column(new_selection_id)
+                self.add_selection_id_column_to_features(new_selection_id)
 
-    def add_selection_id_column(self, column_name: str):
+    def add_selection_id_column_to_features(self, column_name: str):
         # If column_name is not in features, add it with zeros
         if column_name not in self._labels_layer_with_phasor_features.features.columns:
             self._labels_layer_with_phasor_features.features[column_name] = np.zeros_like(self._labels_layer_with_phasor_features.features['label'].values)
@@ -380,7 +378,7 @@ class PlotterWidget(QWidget):
         """
         self.plotter_inputs_widget.labels_layer_mask_combobox.clear()
         layer_names = [layer.name for layer in self.viewer.layers if isinstance(
-                layer, Labels) and layer != self._phasors_selected_layer]
+                layer, Labels) and layer != self.phasors_selected_layer]
         self.plotter_inputs_widget.labels_layer_mask_combobox.addItems(
             layer_names
         )
@@ -401,6 +399,11 @@ class PlotterWidget(QWidget):
         self._labels_layer_with_phasor_features = self.viewer.layers[labels_layer_name].metadata['phasor_features_labels_layer']
         # Set harmonic spinbox maximum value based on maximum harmonic in the table
         self.plotter_inputs_widget.harmonic_spinbox.setMaximum(self._labels_layer_with_phasor_features.features['harmonic'].max())
+        # Add all items in the selection id combobox to the phasor features table columns
+        selection_id_items = [self.plotter_inputs_widget.phasor_selection_id_combobox.itemText(i) for i in range(self.plotter_inputs_widget.phasor_selection_id_combobox.count())]
+        for selection_id in selection_id_items:
+            self.add_selection_id_column_to_features(selection_id)
+
 
     def get_features(self):
         """Get the G and S features for the selected harmonic and selection id.
@@ -506,7 +509,6 @@ class PlotterWidget(QWidget):
             colormap=DirectLabelColormap(color_dict=color_dict, name='cat10_mod'))
         if self.phasors_selected_layer is None:
             self.phasors_selected_layer = self.viewer.add_layer(self._phasors_selected_layer)
-            a=1
         else:
             self.phasors_selected_layer.data = mapped_data
             self.phasors_selected_layer.scale = self._labels_layer_with_phasor_features.scale
